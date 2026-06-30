@@ -1,0 +1,141 @@
+# ============================================================
+# WeChat Auto-Reply System Configuration
+# ============================================================
+
+# --- WeChat Window ---
+wechat:
+  class_name: "Qt51514QWindowIcon"
+  window_title: null  # null = match any title with the class
+
+# --- Screenshot & Capture ---
+capture:
+  screenshot_dir: screenshots
+  save_screenshots: true
+  crop_regions:
+    # Left-side chat list panel (proportional to window width)
+    left_panel:
+      left: 0.0
+      top: 0.08
+      width: 0.30
+      height: 0.92
+    # Right-side message area
+    message_area:
+      left: 0.30
+      top: 0.10
+      width: 0.70
+      height: 0.75
+    # Bottom input box area
+    input_area:
+      left: 0.30
+      top: 0.85
+      width: 0.70
+      height: 0.15
+    # Chat title bar (top of message area)
+    chat_title:
+      left: 0.30
+      top: 0.0
+      width: 0.70
+      height: 0.10
+
+# --- Monitor Polling ---
+monitor:
+  poll_interval: 1.0  # seconds between OCR scan cycles
+
+# --- OCR ---
+ocr:
+  engine: "rapidocr_onnxruntime"
+  max_retries: 3
+  retry_delay: 1.0  # seconds
+  # Text detection confidence threshold
+  confidence_threshold: 0.5
+
+# --- LLM (OpenAI-Compatible) ---
+llm:
+  base_url: "https://token.sensenova.cn/v1"       # e.g. "https://api.openai.com/v1"
+  api_key:         # your API key
+  model: sensenova-6.7-flash-lite
+  temperature: 0.7
+  max_tokens: 2048
+  timeout: 60         # seconds
+  max_retries: 2
+
+# --- Reply Generation ---
+prompt:
+  system: |
+    你正在使用微信与他人聊天。
+    ```
+    你的目标是像真人一样自然回复，而不是像AI助手或客服。
+    
+    回复要求：
+    
+    1. 回复简洁，优先控制在1~2句话内
+    2. 不超过50字
+    3. 不确定的事情直接说不知道、记不清、需要确认
+    4. 不要编造事实
+    5. 涉及金额、转账、借款、合同、报价等内容时，回复"我确认一下再回复你"
+    6. 涉及投诉、纠纷、法律风险时，回复"我了解下情况再回复你"
+    7. 不要使用客服话术
+    8. 不要使用"您好"、"很高兴为您服务"、"根据您的问题"、"建议您"等AI或客服常用表达
+    9. 不要长篇分析
+    10. 不要主动说教
+    11. 优先使用微信聊天习惯用语
+    
+    回复风格：
+    
+    - 可以
+    - 行
+    - 好的
+    - 哈哈
+    - 我看看
+    - 稍等下
+    - 应该可以
+    - 我记得是
+    - 好像是这样
+    - 等我确认下
+    
+    行为规则：
+    
+    - 先接对方的话，再表达观点
+    - 情绪优先于讲道理
+    - 不要每次都给完整答案
+    - 允许适当口语化
+    - 允许表达不确定
+    - 像朋友聊天，不像客服
+    
+    输出要求：
+    
+    - 只输出最终回复内容
+    - 不要解释原因
+    - 不要输出分析过程
+    - 不要使用Markdown
+    - 不要使用引号
+    ```
+  max_reply_chars: 50
+
+# --- Automation ---
+automation:
+  click_delay: 0.3        # seconds between mouse down/up
+  post_click_delay: 1.5   # seconds after clicking before next action
+  paste_delay: 0.3        # seconds after paste before Enter
+  send_delay: 1.0         # seconds after sending before verification
+  reply_cooldown: 10      # minimum seconds before re-processing same contact
+
+# --- State Machine ---
+state_machine:
+  max_cycles_per_chat: 3      # max retry cycles per chat before ERROR
+  idle_cooldown: 0.5          # seconds between IDLE→MONITOR transitions
+
+# --- Watchdog ---
+watchdog:
+  poll_interval: 20          # seconds
+  wechat_process_name: "WeChat"
+  wechat_exe_path: ""          # e.g. "C:\\Program Files (x86)\\Tencent\\WeChat\\WeChat.exe"
+  max_stuck_cycles: 10         # force ERROR if same state for N cycles
+  max_screenshot_mb: 500       # auto-clean screenshots if total exceeds this
+
+# --- Logging ---
+logging:
+  level: "INFO"
+  log_dir: "logs"
+  max_bytes: 10485760          # 10MB per log file
+  backup_count: 5

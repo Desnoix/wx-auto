@@ -1,0 +1,1 @@
+# State machine module for WeChat auto-reply system

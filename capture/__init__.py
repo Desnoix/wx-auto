@@ -1,0 +1,1 @@
+# Capture module for WeChat auto-reply system
