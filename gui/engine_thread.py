@@ -104,9 +104,6 @@ class EngineThread(threading.Thread):
         )
         self.state = EngineState()
         self._stop_event = threading.Event()
-        self._paused = threading.Event()
-        self._paused.set()  # 默认未暂停（但未启动）
-        self._engine_started = threading.Event()
 
         # 组件引用（延迟初始化）
         self._components: dict = {}
@@ -151,13 +148,11 @@ class EngineThread(threading.Thread):
                 self.state.set("running", False)
                 self.state.set("starting", False)
                 self.state.add_error("配置加载失败")
-                self._engine_started.set()
                 return
 
             # 初始化所有组件（同 main.py）
             self._init_components(config)
             self.state.set("starting", False)
-            self._engine_started.set()
 
             # 信号处理
             running = True
@@ -201,11 +196,22 @@ class EngineThread(threading.Thread):
                 uptime = time.time() - start_time
                 self.state.set("uptime_seconds", uptime)
 
-                time.sleep(loop_interval)
+                # 使用 wait 而非 sleep，便于停止信号立即中断空转
+                if self._stop_event.wait(loop_interval):
+                    logger.info("收到停止信号，退出引擎循环")
+                    running = False
+                    break
 
             # 关闭
             if self._watchdog and self._watchdog.is_running():
                 self._watchdog.stop()
+
+            capture = self._components.get("capture") if self._components else None
+            if capture is not None and hasattr(capture, "close"):
+                try:
+                    capture.close()
+                except Exception as e:
+                    logger.warning("关闭截图后台线程失败: %s", e)
 
             logger.info("引擎线程正常退出")
 
@@ -215,7 +221,6 @@ class EngineThread(threading.Thread):
         finally:
             self.state.set("running", False)
             self.state.set("starting", False)
-            self._engine_started.set()
 
     # ---- 内部方法 ----
 
@@ -249,17 +254,24 @@ class EngineThread(threading.Thread):
         ):
             logging.getLogger(noisy_logger).setLevel(logging.WARNING)
 
-        # 文件日志（始终添加，引擎线程独享）
-        log_dir = "logs"
-        os.makedirs(log_dir, exist_ok=True)
-        file_handler = logging.handlers.RotatingFileHandler(
-            os.path.join(log_dir, "wechat-auto.log"),
-            maxBytes=10 * 1024 * 1024,
-            backupCount=5,
-            encoding="utf-8",
+        # 文件日志（避免重复添加）
+        log_dir = os.path.join(_project_root, "logs")
+        log_file = os.path.join(log_dir, "wechat-auto.log")
+        has_file_handler = any(
+            isinstance(h, logging.handlers.RotatingFileHandler)
+            and getattr(h, "baseFilename", None) == os.path.abspath(log_file)
+            for h in root_logger.handlers
         )
-        file_handler.setFormatter(formatter)
-        root_logger.addHandler(file_handler)
+        if not has_file_handler:
+            os.makedirs(log_dir, exist_ok=True)
+            file_handler = logging.handlers.RotatingFileHandler(
+                log_file,
+                maxBytes=10 * 1024 * 1024,
+                backupCount=5,
+                encoding="utf-8",
+            )
+            file_handler.setFormatter(formatter)
+            root_logger.addHandler(file_handler)
 
     def _load_config(self) -> Optional[dict]:
         """加载 YAML 配置。"""
@@ -271,61 +283,10 @@ class EngineThread(threading.Thread):
             return None
 
     def _init_components(self, config: dict):
-        """初始化所有组件（与 main.py 逻辑一致）。"""
-        from capture.window_manager import WeChatWindowManager
-        from capture.print_window import PrintWindowCapture
-        from ocr.rapid_ocr import OCREngine
-        from llm.openai_provider import OpenAIProvider
-        from detector.vl_detector import VLDetector
-        from detector.contact_detector import ContactDetector
-        from detector.message_detector import MessageDetector
-        from automation.mouse_controller import MouseController
-        from automation.keyboard_controller import KeyboardController
-        from taskqueue.task_queue import TaskQueue
-        from state.state_machine import StateMachine
-        from recovery.watchdog import Watchdog
+        """初始化所有组件（使用共享工厂）。"""
+        from factory import build_state_machine
 
-        window_manager = WeChatWindowManager(
-            class_name=config.get("wechat", {}).get("class_name")
-        )
-        print_window = PrintWindowCapture(config.get("capture", {}))
-
-        ocr_engine = OCREngine(config.get("ocr", {}))
-
-        llm_config = config.get("llm", {})
-        llm_provider = OpenAIProvider(llm_config) if llm_config.get("api_key") else None
-
-        if llm_provider is None:
-            logging.getLogger("gui.engine").warning("LLM API 密钥未配置 — 回复生成已禁用")
-
-        vl_detector = VLDetector(llm_provider) if llm_provider else None
-        contact_detector = ContactDetector(ocr_engine)
-        message_detector = MessageDetector(ocr_engine)
-
-        mouse_controller = MouseController(config.get("automation", {}))
-        keyboard_controller = KeyboardController(config.get("automation", {}))
-
-        task_queue = TaskQueue()
-
-        components = {
-            "window_manager": window_manager,
-            "capture": print_window,
-            "ocr_engine": ocr_engine,
-            "vl_detector": vl_detector,
-            "contact_detector": contact_detector,
-            "message_detector": message_detector,
-            "llm_provider": llm_provider,
-            "mouse_controller": mouse_controller,
-            "keyboard_controller": keyboard_controller,
-            "task_queue": task_queue,
-        }
-
-        state_machine = StateMachine(components, config)
-        watchdog = Watchdog(
-            state_machine=state_machine,
-            window_manager=window_manager,
-            config=config.get("watchdog", {}),
-        )
+        components, state_machine, watchdog = build_state_machine(config)
 
         self._components = components
         self._state_machine = state_machine

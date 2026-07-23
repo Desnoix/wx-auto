@@ -8,13 +8,15 @@ from ocr.rapid_ocr import OCREngine, OCRResult
 class ContactDetector:
     """检测并定位微信左侧面板中的联系人。"""
 
-    def __init__(self, ocr_engine: OCREngine):
+    def __init__(self, ocr_engine: OCREngine, crop_region: dict = None):
         """初始化联系人检测器。
 
         Args:
             ocr_engine: 用于文本识别的 OCR 引擎
+            crop_region: 左侧面板裁剪区域 {left, top, width, height}，比例值 0.0-1.0
         """
         self.ocr_engine = ocr_engine
+        self._crop = crop_region or {"left": 0.0, "top": 0.08, "width": 0.30, "height": 0.92}
 
     def get_contact_positions(self, image: Image.Image) -> List[Dict]:
         """获取左侧面板中所有联系人的位置。
@@ -30,10 +32,10 @@ class ContactDetector:
             return []
 
         img_width, img_height = image.size
-        crop_x = int(0.0 * img_width)
-        crop_y = int(0.08 * img_height)
-        crop_w = int(0.30 * img_width) - crop_x
-        crop_h = int(0.92 * img_height) - crop_y
+        crop_x = int(self._crop.get("left", 0.0) * img_width)
+        crop_y = int(self._crop.get("top", 0.08) * img_height)
+        crop_w = int(self._crop.get("width", 0.30) * img_width)
+        crop_h = int(self._crop.get("height", 0.92) * img_height)
         left_panel = image.crop((crop_x, crop_y, crop_x + crop_w, crop_y + crop_h))
 
         ocr_results = self.ocr_engine.ocr_image(left_panel)

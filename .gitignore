@@ -1,1 +1,9 @@
 /screenshots/
+/.idea/inspectionProfiles/profiles_settings.xml
+/.idea/inspectionProfiles/Project_Default.xml
+/.idea/misc.xml
+/.idea/modules.xml
+/.idea/vcs.xml
+/.idea/wechat-auto.iml
+/dist/logs/wechat-auto.log
+/dist/WeChatAutoReply.exe

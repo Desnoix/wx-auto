@@ -33,49 +33,35 @@ class VLDetector:
         """
         self._llm = llm_provider
 
-    def find_unread_contacts(self, image: Image.Image) -> List[Dict]:
+    def find_unread_contacts(self, image: Image.Image) -> Optional[List[Dict]]:
         """分析截图，找出有未读消息的联系人。
 
         Args:
-            image: 微信窗口的全屏截图（PIL Image）。
+            image: 微信左侧会话列表图片（PIL Image）。传入裁剪后的
+                左侧面板可显著减小图片体积、加快 VL 推理。
 
         Returns:
-            未读联系人列表，每个元素：
-            {
-                "name": "联系人名称",
-                "unread_count": 3,        # 未读数，未知为 1
-                "name_bbox": [x1,y1,x2,y2], # 名称在图片中的大致位置
-            }
-            无未读时返回空列表。
+            None 表示 LLM 调用失败（超时/空回复），调用方应保留旧的
+            面板哈希以便下一轮重试。
+            [] 表示 LLM 成功返回但无未读。
+            非空列表：每个元素 {"name": ..., "unread_count": ...}。
+            坐标由调用方通过 OCR 匹配获得。
         """
-        prompt = """你是一个微信截图分析助手。分析这张微信 PC 版截图，找出左侧会话列表中
-所有有未读消息的联系人。
+        prompt = """分析这张微信左侧会话列表截图，找出有未读消息的联系人。
 
-未读消息的特征：
-1. 联系人名称右侧有红色圆形角标，里面写着数字（如 3、99+）
-2. 如果无数字但有红点，视为 1 条未读
-3. 当前对话窗口有未回复的内容，视为未读
+未读特征：
+1. 名称右侧有红色圆形数字角标（如 3、99+）
+2. 无数字但有红点，视为 1 条未读
 
-请严格按照以下 JSON 格式返回，不要加 markdown 标记，不要加多余文字：
+严格按以下 JSON 返回，不加 markdown、不加多余文字：
+{"contacts":[{"name":"联系人名称","unread_count":3}]}
 
-{
-  "contacts": [
-    {
-      "name": "联系人名称",
-      "unread_count": 3,
-      "bbox": [x1, y1, x2, y2]
-    }
-  ]
-}
-
-bbox 是联系人名称在截图中的大致位置 [左上角x, 左上角y, 右下角x, 右下角y]，
-不需要特别精确，能用来估算点击位置即可。
-如果没有任何未读消息，返回 {"contacts": []}。"""
+无未读返回 {"contacts":[]}。"""
 
         response = self._llm.analyze_image(image, prompt)
         if not response:
             logger.warning("[VL检测] LLM 返回为空")
-            return []
+            return None
 
         return self._parse_response(response)
 

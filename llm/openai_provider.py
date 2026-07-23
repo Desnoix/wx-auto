@@ -1,4 +1,5 @@
 import base64
+import logging
 from io import BytesIO
 from time import sleep
 from typing import Any, Optional
@@ -7,6 +8,8 @@ from PIL import Image
 from openai import OpenAI, APIError, RateLimitError, APITimeoutError, AuthenticationError
 
 from llm.provider import LLMProvider
+
+logger = logging.getLogger(__name__)
 
 
 class OpenAIProvider(LLMProvider):
@@ -68,7 +71,7 @@ class OpenAIProvider(LLMProvider):
             self._client.chat.completions.create,
             model=self._model,
             messages=messages,
-            max_tokens=65535,
+            max_tokens=self._max_tokens,
             temperature=0.1,
         )
 
@@ -88,9 +91,17 @@ class OpenAIProvider(LLMProvider):
         for attempt in range(self._max_retries):
             try:
                 response = func(*args, **kwargs)
-                content = response.choices[0].message.content
+                message = response.choices[0].message
+                reasoning = getattr(message, "reasoning_content", None)
+                if reasoning:
+                    logger.debug("模型思考: %s", reasoning)
+                content = message.content
                 if content is None:
-                    last_error = Exception("模型返回空内容")
+                    finish_reason = response.choices[0].finish_reason
+                    logger.warning("模型返回空内容 (finish_reason=%s)", finish_reason)
+                    if finish_reason == "length":
+                        return ""
+                    last_error = Exception(f"模型返回空内容 (finish_reason={finish_reason})")
                     if attempt < self._max_retries - 1:
                         sleep(2 ** attempt)
                     continue
@@ -104,7 +115,7 @@ class OpenAIProvider(LLMProvider):
                 if attempt < self._max_retries - 1:
                     sleep(5)
             except AuthenticationError as e:
-                print(f"认证错误: {e}")
+                logger.error("认证错误: %s", e)
                 return ""
             except APIError as e:
                 last_error = e
@@ -112,8 +123,8 @@ class OpenAIProvider(LLMProvider):
                     sleep(2 ** attempt)
             except Exception as e:
                 last_error = e
-                print(f"意外错误: {e}")
+                logger.error("意外错误: %s", e)
                 return ""
 
-        print(f"重试 {self._max_retries} 次后仍然失败: {last_error}")
+        logger.error("重试 %d 次后仍然失败: %s", self._max_retries, last_error)
         return ""

@@ -27,6 +27,10 @@ _project_root = _get_project_root()
 if _project_root not in sys.path:
     sys.path.insert(0, _project_root)
 
+# 切换 CWD 到项目根目录，保证配置里的相对路径（screenshots/、logs/ 等）
+# 与 GUI 面板使用的绝对路径一致，避免截图保存到 gui/screenshots/ 等错误位置。
+os.chdir(_project_root)
+
 # PyInstaller 多进程兼容：避免子进程重新导入 GUI
 if getattr(sys, 'frozen', False):
     import multiprocessing

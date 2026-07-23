@@ -1,8 +1,10 @@
 """基于 rapidocr_onnxruntime 的 OCR 引擎。"""
 
+import time
 from dataclasses import dataclass
 from typing import Optional
 
+import numpy as np
 import PIL.Image
 
 
@@ -55,7 +57,6 @@ class OCREngine:
             未检测到文本或失败时返回空列表。
         """
         self._ensure_engine()
-        import numpy as np
 
         if self._engine is None:
             return []
@@ -168,8 +169,6 @@ class OCREngine:
                 return self.ocr_image(image)
             except Exception:
                 if attempt < retries - 1:
-                    import time
-
                     time.sleep(self.retry_delay)
                 continue
 

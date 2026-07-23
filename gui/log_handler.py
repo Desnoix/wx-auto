@@ -1,13 +1,22 @@
 """
-自定义日志处理器 — 捕获日志记录并放入线程安全队列，
-供 GUI 面板实时消费。
+自定义日志处理器 — 广播/订阅模式，支持多个 GUI 面板同时消费。
+
+用法::
+
+    handler = GUIQueueHandler()
+    logging.getLogger().addHandler(handler)
+
+    # 每个面板独立订阅一个队列
+    my_queue = handler.subscribe()
+    while not my_queue.empty():
+        record = my_queue.get_nowait()
+        # ...更新 GUI
 """
 
 import logging
 import queue
 import threading
 from datetime import datetime
-from typing import Optional
 
 
 class GUILogRecord:
@@ -15,7 +24,8 @@ class GUILogRecord:
 
     __slots__ = ("timestamp", "levelname", "name", "message", "formatted")
 
-    def __init__(self, timestamp: str, levelname: str, name: str, message: str, formatted: str):
+    def __init__(self, timestamp: str, levelname: str, name: str,
+                 message: str, formatted: str):
         self.timestamp = timestamp
         self.levelname = levelname
         self.name = name
@@ -24,26 +34,29 @@ class GUILogRecord:
 
 
 class GUIQueueHandler(logging.Handler):
-    """将日志记录放入队列的 logging handler。
+    """广播式 logging handler：将每条记录复制到所有订阅者队列。"""
 
-    用法::
-
-        handler = GUIQueueHandler()
-        logging.getLogger().addHandler(handler)
-        # 然后在 GUI 线程中:
-        while not handler.queue.empty():
-            record = handler.queue.get_nowait()
-            # 更新 GUI
-    """
-
-    def __init__(self, max_records: int = 1000):
+    def __init__(self, max_records: int = 2000):
         super().__init__()
-        self.queue: queue.Queue[GUILogRecord] = queue.Queue(maxsize=max_records)
+        self._max = max_records
+        self._subscribers: list[queue.Queue[GUILogRecord]] = []
         self._lock = threading.Lock()
         self._discard_count = 0
 
+    def subscribe(self) -> queue.Queue[GUILogRecord]:
+        """为一个消费者创建独立队列。返回的队列由消费者持有。"""
+        q: queue.Queue[GUILogRecord] = queue.Queue(maxsize=self._max)
+        with self._lock:
+            self._subscribers.append(q)
+        return q
+
+    def unsubscribe(self, q: queue.Queue[GUILogRecord]) -> None:
+        with self._lock:
+            if q in self._subscribers:
+                self._subscribers.remove(q)
+
     def emit(self, record: logging.LogRecord) -> None:
-        """格式化并放入队列。如果队列满则丢弃最旧记录。"""
+        """将记录广播到所有订阅者。"""
         try:
             timestamp = datetime.fromtimestamp(record.created).strftime("%H:%M:%S")
             formatted = self.format(record)
@@ -54,32 +67,28 @@ class GUIQueueHandler(logging.Handler):
                 message=record.getMessage(),
                 formatted=formatted,
             )
-            # 非阻塞放入，满则丢弃
-            try:
-                self.queue.put_nowait(gui_record)
-            except queue.Full:
-                with self._lock:
-                    self._discard_count += 1
+            with self._lock:
+                subs = list(self._subscribers)
+
+            for q in subs:
+                try:
+                    q.put_nowait(gui_record)
+                except queue.Full:
+                    with self._lock:
+                        self._discard_count += 1
                     # 腾出空间：丢弃最旧的 10%
-                    discard_count = max(1, self.queue.qsize() // 10)
+                    discard_count = max(1, q.qsize() // 10)
                     for _ in range(discard_count):
                         try:
-                            self.queue.get_nowait()
+                            q.get_nowait()
                         except queue.Empty:
                             break
-                    self.queue.put_nowait(gui_record)
+                    try:
+                        q.put_nowait(gui_record)
+                    except queue.Full:
+                        pass
         except Exception:
             self.handleError(record)
-
-    def get_all(self) -> list[GUILogRecord]:
-        """取出队列中所有记录（非阻塞）。"""
-        records: list[GUILogRecord] = []
-        while not self.queue.empty():
-            try:
-                records.append(self.queue.get_nowait())
-            except queue.Empty:
-                break
-        return records
 
     @property
     def discard_count(self) -> int:

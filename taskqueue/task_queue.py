@@ -3,7 +3,8 @@
 保证 FIFO 顺序，防止并发切换会话。
 """
 
-import queue as _queue
+import threading
+from collections import deque
 from dataclasses import dataclass
 from typing import Optional
 
@@ -14,32 +15,31 @@ class ChatTask:
     contact_name: str
     contact_center: tuple = (0, 0)  # (x, y) 可点击中心
     unread_count: int = 0
+    contact_bbox: Optional[list] = None  # OCR bbox [x1,y1,x2,y2]，供 OPEN_CHAT 直接点击
 
 
 class TaskQueue:
     """ChatTask 的线程安全 FIFO 队列。"""
 
     def __init__(self):
-        self._queue = _queue.Queue()
+        self._lock = threading.Lock()
+        self._tasks: deque[ChatTask] = deque()
 
     def enqueue(self, contact_name: str, contact_center: tuple = (0, 0),
-                unread_count: int = 0) -> None:
-        """向队列添加联系人。
-
-        Args:
-            contact_name: 联系人/聊天名称。
-            contact_center: 可点击坐标 (x, y)。
-            unread_count: 未读消息数。
-        """
-        self._queue.put(ChatTask(
-            contact_name=contact_name,
-            contact_center=contact_center,
-            unread_count=unread_count
-        ))
+                unread_count: int = 0, contact_bbox: Optional[list] = None) -> None:
+        """向队列添加联系人。"""
+        with self._lock:
+            self._tasks.append(ChatTask(
+                contact_name=contact_name,
+                contact_center=contact_center,
+                unread_count=unread_count,
+                contact_bbox=contact_bbox,
+            ))
 
     def enqueue_task(self, task: ChatTask) -> None:
         """直接添加 ChatTask。"""
-        self._queue.put(task)
+        with self._lock:
+            self._tasks.append(task)
 
     def dequeue(self) -> Optional[ChatTask]:
         """从队列取出下一个任务（非阻塞）。
@@ -47,9 +47,9 @@ class TaskQueue:
         Returns:
             ChatTask，队列为空时返回 None。
         """
-        try:
-            return self._queue.get_nowait()
-        except _queue.Empty:
+        with self._lock:
+            if self._tasks:
+                return self._tasks.popleft()
             return None
 
     def peek(self) -> Optional[ChatTask]:
@@ -58,23 +58,25 @@ class TaskQueue:
         Returns:
             ChatTask，队列为空时返回 None。
         """
-        with self._queue.mutex:
-            if self._queue.empty():
-                return None
-            return self._queue.queue[0]
+        with self._lock:
+            if self._tasks:
+                return self._tasks[0]
+            return None
 
     def is_empty(self) -> bool:
         """检查队列是否为空。"""
-        return self._queue.empty()
+        with self._lock:
+            return len(self._tasks) == 0
 
     def size(self) -> int:
         """返回待处理任务数。"""
-        return self._queue.qsize()
+        with self._lock:
+            return len(self._tasks)
 
     def clear(self) -> None:
         """清空所有待处理任务。"""
-        with self._queue.mutex:
-            self._queue.queue.clear()
+        with self._lock:
+            self._tasks.clear()
 
     def contains(self, contact_name: str) -> bool:
         """检查联系人是否已在队列中（防止重复）。
@@ -85,8 +87,5 @@ class TaskQueue:
         Returns:
             联系人已在队列中返回 True。
         """
-        with self._queue.mutex:
-            for task in self._queue.queue:
-                if task.contact_name == contact_name:
-                    return True
-        return False
+        with self._lock:
+            return any(task.contact_name == contact_name for task in self._tasks)

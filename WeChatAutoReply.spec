@@ -2,7 +2,7 @@
 from PyInstaller.utils.hooks import collect_data_files
 from PyInstaller.utils.hooks import collect_submodules
 
-datas = [('E:\\Project\\Demo\\wechat-auto\\config', 'config')]
+datas = [('E:\\Project\\wallet\\wechat-auto\\config', 'config')]
 hiddenimports = ['customtkinter', 'PIL', 'PIL._tkinter_finder', 'win32gui', 'win32api', 'win32con', 'win32process', 'pyautogui', 'pyperclip', 'yaml', 'openai', 'rapidocr_onnxruntime', 'imagehash', 'httpx', 'httpcore']
 datas += collect_data_files('rapidocr_onnxruntime')
 hiddenimports += collect_submodules('gui')
@@ -17,7 +17,7 @@ hiddenimports += collect_submodules('recovery')
 
 
 a = Analysis(
-    ['E:\\Project\\Demo\\wechat-auto\\main_gui.py'],
+    ['E:\\Project\\wallet\\wechat-auto\\main_gui.py'],
     pathex=[],
     binaries=[],
     datas=datas,

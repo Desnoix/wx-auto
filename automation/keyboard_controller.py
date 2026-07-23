@@ -16,6 +16,9 @@ class KeyboardController:
             paste_delay = self.config.get('paste_delay', 0.3)
             time.sleep(paste_delay)
             pyautogui.hotkey('ctrl', 'v')
+            # 粘贴后等待应用处理键盘事件；调用方不需要再 sleep
+            post_paste_delay = self.config.get('post_paste_delay', 0.3)
+            time.sleep(post_paste_delay)
             return True
         except Exception as e:
             return False

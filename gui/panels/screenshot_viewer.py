@@ -9,12 +9,16 @@
 """
 
 import os
-from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
 import customtkinter as ctk
 from PIL import Image
+
+try:
+    from ..theme import c
+except ImportError:
+    from gui.theme import c
 
 # 缩略图尺寸
 THUMB_SIZE = (180, 130)
@@ -28,6 +32,7 @@ class ScreenshotViewerPanel(ctk.CTkFrame):
         self._screenshot_dir = screenshot_dir
         self._thumbnails: list[dict] = []
         self._preview_window: Optional[ctk.CTkToplevel] = None
+        self._known_files: list[str] = []
 
         self._build_toolbar()
         self._build_grid()
@@ -48,14 +53,15 @@ class ScreenshotViewerPanel(ctk.CTkFrame):
 
         self._count_label = ctk.CTkLabel(
             toolbar, text="0 张截图", font=ctk.CTkFont(size=12),
-            text_color="#90A4AE",
+            text_color=c("text_med"),
         )
         self._count_label.pack(side="right", padx=8)
 
         self._refresh_btn = ctk.CTkButton(
             toolbar, text="⟳ 刷新", width=70, height=28,
-            fg_color="#546E7A", hover_color="#455A64",
-            command=self.refresh,
+            fg_color=c("surface_2"), hover_color=c("border_strong"),
+            text_color=c("text_hi"),
+            command=self._force_refresh,
         )
         self._refresh_btn.pack(side="right", padx=4)
 
@@ -66,25 +72,39 @@ class ScreenshotViewerPanel(ctk.CTkFrame):
 
     # ---- 数据加载 ----
 
-    def refresh(self):
-        """重新加载截图列表并刷新显示。"""
-        # 清除现有缩略图
-        for widget in self._scroll_frame.winfo_children():
-            widget.destroy()
+    def _force_refresh(self):
+        """强制刷新：清除缓存重建。"""
+        self._known_files = []
+        self.refresh()
 
-        self._thumbnails = []
+    def refresh(self):
+        """增量刷新：仅当文件列表变化时重建。"""
         screenshot_path = Path(self._screenshot_dir)
 
         if not screenshot_path.is_dir():
+            if self._known_files:
+                self._known_files = []
+                for widget in self._scroll_frame.winfo_children():
+                    widget.destroy()
             self._count_label.configure(text="截图目录不存在")
             return
 
-        # 获取所有 png 文件，按修改时间倒序
         png_files = sorted(
             screenshot_path.glob("*.png"),
             key=lambda f: f.stat().st_mtime,
             reverse=True,
         )
+
+        current_files = [str(f) for f in png_files]
+        if current_files == self._known_files:
+            return
+
+        self._known_files = current_files
+
+        for widget in self._scroll_frame.winfo_children():
+            widget.destroy()
+
+        self._thumbnails = []
 
         if not png_files:
             self._count_label.configure(text="没有截图")
@@ -95,10 +115,9 @@ class ScreenshotViewerPanel(ctk.CTkFrame):
 
     def _render_thumbnails(self, files: list[Path]):
         """渲染缩略图网格。"""
-        # 使用默认列数直到窗口实际宽度已知
         widget_width = self._scroll_frame.winfo_width()
         if widget_width <= 1:
-            cols = 4  # 窗口尚未映射时的默认值
+            cols = 4
         else:
             cols = max(1, widget_width // (THUMB_SIZE[0] + 16))
 
@@ -116,12 +135,10 @@ class ScreenshotViewerPanel(ctk.CTkFrame):
             thumb_frame.pack(side="left", padx=4, pady=2)
             thumb_frame.pack_propagate(False)
 
-            # 加载图片
             try:
                 img = Image.open(filepath)
                 img.thumbnail(THUMB_SIZE, Image.LANCZOS)
 
-                # 居中填充背景
                 bg = Image.new("RGB", THUMB_SIZE, (30, 30, 30))
                 offset = (
                     (THUMB_SIZE[0] - img.width) // 2,
@@ -133,26 +150,27 @@ class ScreenshotViewerPanel(ctk.CTkFrame):
                 img_label = ctk.CTkLabel(
                     thumb_frame, image=photo, text="", cursor="hand2",
                 )
-                img_label.image = photo  # 保持引用
+                img_label.image = photo
                 img_label.pack(padx=6, pady=(6, 2))
 
-                # 点击放大
                 img_path_str = str(filepath)
                 img_label.bind(
                     "<Button-1>",
                     lambda e, p=img_path_str: self._show_preview(p),
                 )
 
-                # 文件名
                 name_label = ctk.CTkLabel(
                     thumb_frame,
                     text=filepath.name[:25] + ("..." if len(filepath.name) > 25 else ""),
-                    font=ctk.CTkFont(size=9), text_color="#78909C",
+                    font=ctk.CTkFont(size=9), text_color=c("text_low"),
                 )
                 name_label.pack(padx=4, pady=(0, 4))
 
             except Exception:
-                pass
+                ctk.CTkLabel(
+                    thumb_frame, text="加载失败",
+                    font=ctk.CTkFont(size=9), text_color=c("error"),
+                ).pack(expand=True)
 
     # ---- 预览 ----
 
@@ -168,10 +186,8 @@ class ScreenshotViewerPanel(ctk.CTkFrame):
         self._preview_window.title(f"截图预览 — {os.path.basename(filepath)}")
         self._preview_window.geometry("800x600")
 
-        # 加载并缩放
         try:
             img = Image.open(filepath)
-            # 按窗口比例缩放
             max_w, max_h = 1600, 1200
             img.thumbnail((max_w, max_h), Image.LANCZOS)
             photo = ctk.CTkImage(light_image=img, dark_image=img,

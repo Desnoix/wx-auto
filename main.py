@@ -101,77 +101,10 @@ def main():
             logger.info("已清理 %d 张旧截图", cleaned)
 
     # --- 初始化所有组件 ---
+    from factory import build_state_machine
 
-    # 捕获层
-    from capture.window_manager import WeChatWindowManager
-    from capture.print_window import PrintWindowCapture
-
-    window_manager = WeChatWindowManager(
-        class_name=config.get("wechat", {}).get("class_name")
-    )
-    print_window = PrintWindowCapture(config.get("capture", {}))
-
-    # OCR 层
-    from ocr.rapid_ocr import OCREngine
-
-    ocr_engine = OCREngine(config.get("ocr", {}))
-
-    # LLM 层
-    from llm.openai_provider import OpenAIProvider
-
-    llm_config = config.get("llm", {})
-    llm_provider = OpenAIProvider(llm_config) if llm_config.get("api_key") else None
-
-    if llm_provider is None:
-        logger.warning("LLM API 密钥未配置 — 回复生成已禁用")
-
-    # 检测器
-    from detector.vl_detector import VLDetector
-    from detector.contact_detector import ContactDetector
-    from detector.message_detector import MessageDetector
-
-    vl_detector = VLDetector(llm_provider) if llm_provider else None
-    contact_detector = ContactDetector(ocr_engine)
-    message_detector = MessageDetector(ocr_engine)
-
-    # 自动化
-    from automation.mouse_controller import MouseController
-    from automation.keyboard_controller import KeyboardController
-
-    mouse_controller = MouseController(config.get("automation", {}))
-    keyboard_controller = KeyboardController(config.get("automation", {}))
-
-    # 任务队列
-    from taskqueue.task_queue import TaskQueue
-
-    task_queue = TaskQueue()
-
-    # 状态机
-    from state.state_machine import StateMachine
-
-    components = {
-        "window_manager": window_manager,
-        "capture": print_window,
-        "ocr_engine": ocr_engine,
-        "vl_detector": vl_detector,
-        "contact_detector": contact_detector,
-        "message_detector": message_detector,
-        "llm_provider": llm_provider,
-        "mouse_controller": mouse_controller,
-        "keyboard_controller": keyboard_controller,
-        "task_queue": task_queue,
-    }
-
-    state_machine = StateMachine(components, config)
-
-    # 看门狗
-    from recovery.watchdog import Watchdog
-
-    watchdog = Watchdog(
-        state_machine=state_machine,
-        window_manager=window_manager,
-        config=config.get("watchdog", {})
-    )
+    components, state_machine, watchdog = build_state_machine(config)
+    window_manager = components["window_manager"]
 
     # --- 信号处理 ---
     running = True
@@ -217,6 +150,11 @@ def main():
     if watchdog.is_running():
         watchdog.stop()
         logger.info("看门狗已停止")
+
+    capture = components.get("capture")
+    if capture is not None and hasattr(capture, "close"):
+        capture.close()
+        logger.info("截图后台线程已关闭")
 
     logger.info("系统关闭完成")
 

@@ -2,10 +2,9 @@
 微信自动化鼠标控制器
 
 坐标系统说明：
-  PrintWindow(PW_CLIENTONLY) 将客户端区域内容捕获到全窗口大小的
-  位图中。OCR 边界框坐标因此相对于客户端区域原点，
-  该原点与窗口原点存在（左边框，标题栏高度）的偏移。
-  我们使用 ClientToScreen 获取正确的屏幕坐标。
+  PrintWindow(PW_RENDERFULLCONTENT) 捕获完整窗口后裁掉标题栏，
+  返回的图片仅含客户区。OCR 坐标即客户区相对坐标，
+  通过 ClientToScreen 转换为屏幕坐标进行点击。
 """
 import logging
 import time

@@ -3,11 +3,17 @@
 """
 
 import os
+import re
 import tkinter as tk
 from typing import Optional
 
 import customtkinter as ctk
 import yaml
+
+try:
+    from ..theme import c
+except ImportError:
+    from gui.theme import c
 
 
 class ConfigPanel(ctk.CTkFrame):
@@ -35,6 +41,7 @@ class ConfigPanel(ctk.CTkFrame):
         self._cap_save_switch: Optional[ctk.CTkSwitch] = None
         self._cap_screenshot_dir: Optional[ctk.CTkEntry] = None
         self._cap_save_var = tk.BooleanVar(value=True)
+        self._ignore_textbox: Optional[ctk.CTkTextbox] = None
 
         self._save_status: Optional[ctk.CTkLabel] = None
 
@@ -53,6 +60,7 @@ class ConfigPanel(ctk.CTkFrame):
         """构建所有配置区块。"""
         self._build_llm_section()
         self._build_automation_section()
+        self._build_ignore_section()
         self._build_state_machine_section()
         self._build_capture_section()
         self._build_action_bar()
@@ -71,7 +79,7 @@ class ConfigPanel(ctk.CTkFrame):
         if subtitle:
             ctk.CTkLabel(
                 header, text=subtitle,
-                font=ctk.CTkFont(size=11), text_color="#90A4AE",
+                font=ctk.CTkFont(size=11), text_color=c("text_med"),
             ).pack(anchor="w")
 
         # 内容框
@@ -158,6 +166,13 @@ class ConfigPanel(ctk.CTkFrame):
             frame, 3, "发送后延迟 (秒)", "发送后等待验证的时间"
         )
 
+    def _build_ignore_section(self):
+        """忽略联系人配置区域。"""
+        frame = self._make_section("忽略联系人", "命中任一关键词即跳过，不自动回复（每行一个）")
+
+        self._ignore_textbox = ctk.CTkTextbox(frame, height=120, font=ctk.CTkFont(size=12))
+        self._ignore_textbox.pack(fill="x", padx=12, pady=8)
+
     def _build_state_machine_section(self):
         """状态机配置区域。"""
         frame = self._make_section("状态机配置", "重试和周期限制")
@@ -193,27 +208,30 @@ class ConfigPanel(ctk.CTkFrame):
         bar.pack_propagate(False)
 
         self._save_status = ctk.CTkLabel(
-            bar, text="", font=ctk.CTkFont(size=12), text_color="#A5D6A7"
+            bar, text="", font=ctk.CTkFont(size=12), text_color=c("success")
         )
         self._save_status.pack(side="left", padx=16)
 
         ctk.CTkLabel(bar, text="").pack(side="left", fill="x", expand=True)
 
         ctk.CTkButton(
-            bar, text="💾 保存配置", width=120, height=32,
-            fg_color="#1565C0", hover_color="#0D47A1",
+            bar, text="保存配置", width=120, height=32,
+            fg_color=c("accent"), hover_color=c("accent_hov"),
+            text_color=c("accent_text"),
             command=self._save_config,
         ).pack(side="right", padx=10)
 
         ctk.CTkButton(
-            bar, text="↩ 重置", width=80, height=32,
-            fg_color="#546E7A", hover_color="#455A64",
+            bar, text="重置", width=80, height=32,
+            fg_color=c("surface_2"), hover_color=c("border_strong"),
+            text_color=c("text_hi"),
             command=self._reset_config,
         ).pack(side="right", padx=4)
 
         ctk.CTkButton(
-            bar, text="⟳ 重新加载", width=100, height=32,
-            fg_color="#455A64", hover_color="#37474F",
+            bar, text="重新加载", width=100, height=32,
+            fg_color=c("surface_2"), hover_color=c("border_strong"),
+            text_color=c("text_hi"),
             command=self._reload_config,
         ).pack(side="right", padx=4)
 
@@ -260,6 +278,11 @@ class ConfigPanel(ctk.CTkFrame):
         self._cap_save_var.set(_get_val(["capture", "save_screenshots"], True))
         _set_entry(self._cap_screenshot_dir, _get_val(["capture", "screenshot_dir"], "screenshots"))
 
+        if self._ignore_textbox:
+            self._ignore_textbox.delete("1.0", "end")
+            ignore_list = _get_val(["automation", "ignore_contacts"], []) or []
+            self._ignore_textbox.insert("1.0", "\n".join(str(s) for s in ignore_list))
+
     def _save_config(self):
         """将 UI 值保存到配置文件（保留注释和格式）。
 
@@ -292,14 +315,13 @@ class ConfigPanel(ctk.CTkFrame):
                 _add_val("max_cycles_per_chat:", int(_get_entry(self._sm_max_cycles)))
                 _add_val("idle_cooldown:", float(_get_entry(self._sm_idle_cooldown)))
             except ValueError:
-                self._save_status.configure(text="✗ 数值格式错误", text_color="#FF1744")
+                self._save_status.configure(text="✗ 数值格式错误", text_color=c("error"))
                 return
 
             _add_val("save_screenshots:", str(self._cap_save_var.get()).lower())
             _add_val("screenshot_dir:", _get_entry(self._cap_screenshot_dir))
 
             # 逐行读取并替换值（保留注释）
-            import re
             with open(self._config_path, encoding="utf-8") as f:
                 lines = f.readlines()
 
@@ -330,24 +352,54 @@ class ConfigPanel(ctk.CTkFrame):
                 with open(self._config_path, "w", encoding="utf-8") as f:
                     f.writelines(lines)
 
-            self._save_status.configure(text="✓ 配置已保存（注释保留）", text_color="#A5D6A7")
+            # 保存 ignore_contacts 列表（需要特殊处理 YAML 列表）
+            if self._ignore_textbox:
+                new_items = [
+                    s.strip() for s in self._ignore_textbox.get("1.0", "end").splitlines()
+                    if s.strip()
+                ]
+                with open(self._config_path, encoding="utf-8") as f:
+                    lines = f.readlines()
+
+                # 找到 ignore_contacts: 行，替换其后续的列表项
+                start_idx = None
+                for i, line in enumerate(lines):
+                    if line.strip().startswith("ignore_contacts:"):
+                        start_idx = i
+                        break
+
+                if start_idx is not None:
+                    # 删除旧的列表项
+                    end_idx = start_idx + 1
+                    while end_idx < len(lines) and lines[end_idx].strip().startswith("- "):
+                        end_idx += 1
+                    # 获取缩进（列表项比 key 多两格）
+                    key_indent = len(lines[start_idx]) - len(lines[start_idx].lstrip())
+                    item_indent = " " * (key_indent + 4)
+                    new_lines = [f'{item_indent}- "{item}"\n' for item in new_items]
+                    lines[start_idx + 1:end_idx] = new_lines
+
+                    with open(self._config_path, "w", encoding="utf-8") as f:
+                        f.writelines(lines)
+
+            self._save_status.configure(text="✓ 配置已保存", text_color=c("success"))
             self.after(3000, lambda: self._save_status.configure(text=""))
 
         except Exception as e:
-            self._save_status.configure(text=f"✗ 保存失败: {e}", text_color="#FF1744")
+            self._save_status.configure(text=f"✗ 保存失败: {e}", text_color=c("error"))
 
     def _reload_config(self):
         """重新从文件加载配置。"""
         self._load_config()
         self._update_ui()
-        self._save_status.configure(text="⟳ 配置已重新加载", text_color="#90CAF9")
+        self._save_status.configure(text="⟳ 配置已重新加载", text_color=c("accent"))
         self.after(3000, lambda: self._save_status.configure(text=""))
 
     def _reset_config(self):
         """重置为上次保存的值（从文件重新加载）。"""
         self._load_config()
         self._update_ui()
-        self._save_status.configure(text="↩ 已重置为已保存值", text_color="#FFF9C4")
+        self._save_status.configure(text="↩ 已重置为已保存值", text_color=c("warning"))
         self.after(3000, lambda: self._save_status.configure(text=""))
 
     def reload_config(self):

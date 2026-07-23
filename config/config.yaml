@@ -11,6 +11,8 @@ wechat:
 capture:
   screenshot_dir: screenshots
   save_screenshots: true
+  # 异步保存队列上限；超过时新截图会被丢弃以避免内存堆积
+  save_queue_max: 32
   crop_regions:
     # Left-side chat list panel (proportional to window width)
     left_panel:
@@ -40,24 +42,28 @@ capture:
 # --- Monitor Polling ---
 monitor:
   poll_interval: 1.0  # seconds between OCR scan cycles
+  phash_threshold: 5  # perceptual hash Hamming distance threshold to skip VL
+  force_vl_interval: 60.0  # seconds; force VL detection even if phash unchanged
 
 # --- OCR ---
 ocr:
   engine: "rapidocr_onnxruntime"
   max_retries: 3
   retry_delay: 1.0  # seconds
-  # Text detection confidence threshold
+  # Text detection confidence threshold (general OCR calls)
   confidence_threshold: 0.5
+  # 消息内容专用置信度（更严格，避免把不确定 OCR 结果喂给 LLM）
+  message_min_confidence: 0.7
 
 # --- LLM (OpenAI-Compatible) ---
 llm:
   base_url: "https://token.sensenova.cn/v1"       # e.g. "https://api.openai.com/v1"
-  api_key:         # your API key
+  api_key: sk-iEDWwdaUfLv2Ymn4HaxrmyQZB7exn6rI         # your API key
   model: sensenova-6.7-flash-lite
   temperature: 0.7
-  max_tokens: 2048
-  timeout: 60         # seconds
-  max_retries: 2
+  max_tokens: 8192
+  timeout: 120         # seconds
+  max_retries: 1
 
 # --- Reply Generation ---
 prompt:
@@ -113,12 +119,27 @@ prompt:
   max_reply_chars: 50
 
 # --- Automation ---
+# 每个延迟由对应的控制器方法内部消费一次，handlers 不再叠加 sleep
 automation:
-  click_delay: 0.3        # seconds between mouse down/up
-  post_click_delay: 1.5   # seconds after clicking before next action
-  paste_delay: 0.3        # seconds after paste before Enter
-  send_delay: 1.0         # seconds after sending before verification
-  reply_cooldown: 10      # minimum seconds before re-processing same contact
+  click_delay: 0.3        # (未使用) 保留兼容
+  post_click_delay: 1.5   # MouseController.click_at 点击后等待 UI 响应
+  paste_delay: 0.3        # KeyboardController.type_text 复制后、粘贴前的剪贴板就绪等待
+  post_paste_delay: 0.3   # KeyboardController.type_text 粘贴后等待应用处理
+  send_delay: 1.0         # KeyboardController.press_enter 按下 Enter 后等待发送完成
+  reply_cooldown: 30      # 同一联系人再次处理的最小间隔（秒）
+  # 命中任一子串（不区分大小写）即跳过该联系人，不入队回复。
+  # 用于屏蔽公众号、订阅号、系统通知等无需回复的对象。
+  ignore_contacts:
+    - "公众号"
+    - "订阅号"
+    - "服务号"
+    - "订阅号消息"
+    - "服务通知"
+    - "微信团队"
+    - "微信支付"
+    - "微信运动"
+    - "文件传输助手"
+    - "腾讯新闻"
 
 # --- State Machine ---
 state_machine:
@@ -130,12 +151,12 @@ watchdog:
   poll_interval: 20          # seconds
   wechat_process_name: "WeChat"
   wechat_exe_path: ""          # e.g. "C:\\Program Files (x86)\\Tencent\\WeChat\\WeChat.exe"
-  max_stuck_cycles: 10         # force ERROR if same state for N cycles
+  max_stuck_cycles: 60         # force ERROR if same state for N cycles
   max_screenshot_mb: 500       # auto-clean screenshots if total exceeds this
 
 # --- Logging ---
 logging:
-  level: "INFO"
+  level: "DEBUG"
   log_dir: "logs"
   max_bytes: 10485760          # 10MB per log file
   backup_count: 5

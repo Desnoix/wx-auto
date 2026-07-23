@@ -54,6 +54,7 @@ IDLE → MONITOR → DETECT_UNREAD → OPEN_CHAT → READ_MESSAGE
 - **最大重试**：每个状态内最多 3 次；每个联系人最多 3 个完整周期（`state_machine.max_cycles_per_chat`），超限则丢弃。
 - **卡死检测**：看门狗在同一状态持续超过 `watchdog.max_stuck_cycles`（默认 10）时强制转入 ERROR。
 - **队列**：跨联系人的 FIFO，按名称去重。
+- **未读检测双保险**：DETECT_UNREAD 使用 phash 快速判断左侧面板是否有变化，无变化则跳过 VL 调用节省开销。但微信未读红点太小，phash 经常捕捉不到，因此增加了 `monitor.force_vl_interval`（默认 60 秒）强制定时调用 VL，确保不漏消息。
 
 ## 关键注意事项
 
@@ -64,8 +65,8 @@ IDLE → MONITOR → DETECT_UNREAD → OPEN_CHAT → READ_MESSAGE
 - **LLM 禁用**：如果 `llm.api_key` 为空/null，`llm_provider` 为 `None`，系统会打警告日志——GENERATE_REPLY 状态会转入 ERROR。
 - **VL 检测器**（`detector/vl_detector.py`）：使用视觉语言模型识别未读联系人，搭配 `ContactDetector`（OCR）精确定位坐标后点击。需 LLM 支持多模态（如 GPT-4o、Qwen-VL）。未读检测链路：VL 识别名称 → OCR 获取坐标。
 - **看门狗重启**：需要配置 `watchdog.wechat_exe_path`，否则会回退到常见安装路径。自动重启是尽力而为，不保证成功。
-- **黑屏检测**：`PrintWindowCapture._is_black_screen()` 使用 95% 像素阈值 + 10 亮度。大面积黑色的截图会重试（最多 3 次）。
-- **GDI 资源清理**：`_capture_single` 中使用 `try/finally` 确保 HDC 和 HBITMAP 释放。改到这部分的代码时，保留这个清理模式。
+- **黑屏检测**：`PrintWindowCapture._is_black_screen()` 使用 95% 像素阈值 + 10 亮度。大面积黑色的截图会重试（最多 3 次）。截图使用 `PW_RENDERFULLCONTENT`（flag 2）让 DWM 合成器渲染，兼容 Qt5 GPU 加速窗口。模块加载时自动调用 `SetProcessDpiAwareness(2)` 确保坐标与物理像素一致。`_strip_title_bar()` 裁掉标题栏后返回仅含客户区的图片，保持下游坐标系一致。
+- **GDI 资源清理**：`_capture_single` 中使用 `try/finally` 确保 HDC 和 HBITMAP 释放。改到这部分的代码时，保留这个清理模式。`PrintWindow` 失败时自动回退到 `BitBlt`（SRCCOPY）。
 
 ## 没有测试
 
@@ -87,6 +88,7 @@ pywin32 pillow pyautogui pyperclip rapidocr_onnxruntime imagehash pyyaml openai
 |---|---|---|
 | `wechat.class_name` | `Qt51514QWindowIcon` | 微信版本更新 |
 | `monitor.phash_threshold` | 5 | 太高→漏检测变化；太低→误报 |
+| `monitor.force_vl_interval` | 60 | 强制 VL 检测间隔（秒），越小检测越及时但 LLM 开销越大 |
 | `automation.reply_cooldown` | 30 | 调整回复频率容忍度 |
 | `watchdog.wechat_exe_path` | "" | 要让自动重启生效就必须设置 |
 | `capture.crop_regions.*` | 比例值 | 微信 UI 布局变化 |

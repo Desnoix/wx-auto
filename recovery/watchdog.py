@@ -141,8 +141,9 @@ class Watchdog:
         GENERATE_REPLY, SEND, VERIFY, COMPLETE, ERROR。
         """
         current_state = self._state_machine.state
-        # IDLE 和 MONITOR 是正常的等待/轮询状态，不计入卡死
-        if current_state.value in ("IDLE", "MONITOR"):
+        # IDLE/MONITOR 是正常轮询状态；DETECT_UNREAD/GENERATE_REPLY 会合法阻塞在
+        # LLM 网络请求上（可能耗时几十秒），也不计入卡死，避免与 handler 竞态改写状态。
+        if current_state.value in ("IDLE", "MONITOR", "DETECT_UNREAD", "GENERATE_REPLY"):
             self._stuck_count = 0
             self._last_state = current_state
             return

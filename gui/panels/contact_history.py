@@ -7,12 +7,14 @@
   - 清空历史
 """
 
-import tkinter as tk
-from typing import Optional
-
 import customtkinter as ctk
 
-from ..engine_thread import EngineState
+try:
+    from ..engine_thread import EngineState
+    from ..theme import c
+except ImportError:
+    from gui.engine_thread import EngineState
+    from gui.theme import c
 
 
 class ContactHistoryPanel(ctk.CTkFrame):
@@ -21,7 +23,7 @@ class ContactHistoryPanel(ctk.CTkFrame):
     def __init__(self, master, engine_state: EngineState):
         super().__init__(master)
         self.engine_state = engine_state
-        self._last_history_len = 0  # 避免每 500ms 全量重建
+        self._last_history_len = 0
 
         self._build_toolbar()
         self._build_table()
@@ -42,13 +44,14 @@ class ContactHistoryPanel(ctk.CTkFrame):
 
         self._count_label = ctk.CTkLabel(
             toolbar, text="0 条记录", font=ctk.CTkFont(size=12),
-            text_color="#90A4AE",
+            text_color=c("text_med"),
         )
         self._count_label.pack(side="right", padx=8)
 
         self._clear_btn = ctk.CTkButton(
-            toolbar, text="🗑 清空", width=70, height=28,
-            fg_color="#546E7A", hover_color="#455A64",
+            toolbar, text="清空", width=70, height=28,
+            fg_color=c("surface_2"), hover_color=c("border_strong"),
+            text_color=c("text_hi"),
             command=self._clear_history,
         )
         self._clear_btn.pack(side="right", padx=4)
@@ -70,13 +73,13 @@ class ContactHistoryPanel(ctk.CTkFrame):
             ctk.CTkLabel(
                 header, text=t,
                 font=ctk.CTkFont(size=12, weight="bold"),
-                text_color="#90A4AE",
+                text_color=c("text_med"),
                 width=w if w > 1 else 0,
             ).pack(side="left", padx=(8 if i == 0 else 4, 0), fill="x" if w == 1 else "none",
                    expand=(w == 1))
 
         # 分隔线
-        ctk.CTkFrame(container, height=1, fg_color="#37474F").pack(fill="x")
+        ctk.CTkFrame(container, height=1, fg_color=c("border")).pack(fill="x")
 
         # 可滚动的列表区域
         self._list_frame = ctk.CTkScrollableFrame(container)
@@ -85,7 +88,7 @@ class ContactHistoryPanel(ctk.CTkFrame):
         # 占位文字
         self._empty_label = ctk.CTkLabel(
             self._list_frame, text="暂无回复记录",
-            font=ctk.CTkFont(size=13), text_color="#616161",
+            font=ctk.CTkFont(size=13), text_color=c("text_low"),
         )
         self._empty_label.pack(expand=True, pady=40)
 
@@ -97,7 +100,6 @@ class ContactHistoryPanel(ctk.CTkFrame):
             return
         history = self.engine_state.get("contact_history", [])
 
-        # 长度未变化时跳过全量重建
         if len(history) == self._last_history_len and not (
             not history and self._list_frame.winfo_children()
         ):
@@ -110,7 +112,7 @@ class ContactHistoryPanel(ctk.CTkFrame):
                 w.destroy()
             self._empty_label = ctk.CTkLabel(
                 self._list_frame, text="暂无回复记录",
-                font=ctk.CTkFont(size=13), text_color="#616161",
+                font=ctk.CTkFont(size=13), text_color=c("text_low"),
             )
             self._empty_label.pack(expand=True, pady=40)
             self._count_label.configure(text="0 条记录")
@@ -129,20 +131,21 @@ class ContactHistoryPanel(ctk.CTkFrame):
 
             ctk.CTkLabel(
                 row, text=record.get("time", ""),
-                font=ctk.CTkFont(size=11), text_color="#78909C",
+                font=ctk.CTkFont(size=11), text_color=c("text_low"),
                 width=150,
             ).pack(side="left", padx=(8, 4))
 
             ctk.CTkLabel(
                 row, text=record.get("contact", ""),
                 font=ctk.CTkFont(size=12, weight="bold"),
+                text_color=c("text_hi"),
                 width=120,
             ).pack(side="left", padx=4)
 
             reply = record.get("reply", "")
             ctk.CTkLabel(
                 row, text=reply,
-                font=ctk.CTkFont(size=11), text_color="#B0BEC5",
+                font=ctk.CTkFont(size=11), text_color=c("text_med"),
                 anchor="w",
             ).pack(side="left", padx=4, fill="x", expand=True)
 
@@ -150,4 +153,5 @@ class ContactHistoryPanel(ctk.CTkFrame):
 
     def _clear_history(self):
         """清空历史。"""
-        self.engine_state.set("contact_history", [])
+        if self.engine_state:
+            self.engine_state.set("contact_history", [])
