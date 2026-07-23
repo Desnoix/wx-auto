@@ -57,8 +57,8 @@ ocr:
 
 # --- LLM (OpenAI-Compatible) ---
 llm:
-  base_url: "https://token.sensenova.cn/v1"       # e.g. "https://api.openai.com/v1"
-  api_key: sk-iEDWwdaUfLv2Ymn4HaxrmyQZB7exn6rI         # your API key
+  base_url: ""       # e.g. "https://api.openai.com/v1"
+  api_key:          # your API key
   model: sensenova-6.7-flash-lite
   temperature: 0.7
   max_tokens: 8192
